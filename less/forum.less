@@ -79,11 +79,11 @@
       gap: 8px;
     }
 
+    // Name above its bar: the sidebar is too narrow for both on one line.
     li {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 40%;
-      align-items: center;
-      gap: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
     }
 
     .ClubBar {
