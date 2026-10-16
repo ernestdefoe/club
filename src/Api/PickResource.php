@@ -167,12 +167,16 @@ class PickResource extends AbstractDatabaseResource
      */
     private function progress(Pick $pick): array
     {
-        $rows = $pick->getConnection()->table('club_members')
+        $db = $pick->getConnection();
+        // Members with no progress row yet count as 0; PostgreSQL would sort their NULL first.
+        $done = 'COALESCE('.$db->getQueryGrammar()->wrap('club_progress.done').', 0)';
+
+        $rows = $db->table('club_members')
             ->leftJoin('club_progress', function ($join) use ($pick) {
                 $join->on('club_progress.user_id', '=', 'club_members.user_id')->where('club_progress.pick_id', '=', $pick->id);
             })
             ->where('club_members.club_id', $pick->club_id)
-            ->orderByDesc('club_progress.done')
+            ->orderByRaw("$done DESC")
             ->orderBy('club_members.joined_at')
             ->limit(self::MEMBERS_SHOWN)
             ->get(['club_members.user_id', 'club_progress.done']);
