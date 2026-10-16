@@ -23,25 +23,27 @@ export default class ClubEditModal extends FormModal {
   content() {
     return (
       <div className="Modal-body">
-        <div className="Form-group">
-          <label for="club-name">{t('club.name_label')}</label>
-          <input id="club-name" className="FormControl" maxlength="100" required value={this.name} oninput={(e) => (this.name = e.target.value)} />
-        </div>
-        <div className="Form-group">
-          <label for="club-description">{t('club.description_label')}</label>
-          <textarea
-            id="club-description"
-            className="FormControl"
-            rows="4"
-            maxlength="2000"
-            value={this.description}
-            oninput={(e) => (this.description = e.target.value)}
-          />
-        </div>
-        <div className="Form-group">
-          <Button type="submit" className="Button Button--primary Button--block" loading={this.loading} disabled={!this.name.trim()}>
-            {t('club.save')}
-          </Button>
+        <div className="Form">
+          <div className="Form-group">
+            <label for="club-name">{t('club.name_label')}</label>
+            <input id="club-name" className="FormControl" maxlength="100" required value={this.name} oninput={(e) => (this.name = e.target.value)} />
+          </div>
+          <div className="Form-group">
+            <label for="club-description">{t('club.description_label')}</label>
+            <textarea
+              id="club-description"
+              className="FormControl"
+              rows="4"
+              maxlength="2000"
+              value={this.description}
+              oninput={(e) => (this.description = e.target.value)}
+            />
+          </div>
+          <div className="Form-group">
+            <Button type="submit" className="Button Button--primary Button--block" loading={this.loading} disabled={!this.name.trim()}>
+              {t('club.save')}
+            </Button>
+          </div>
         </div>
       </div>
     );
