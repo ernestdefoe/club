@@ -214,6 +214,32 @@ class ClubTest extends TestCase
     }
 
     #[Test]
+    public function gated_posts_cost_no_more_queries_in_bulk(): void
+    {
+        [, $pick] = $this->clubWithPick();
+        $this->call('POST', "/api/club-picks/$pick/progress", 4, ['done' => 1]);
+
+        $now = Carbon::now();
+        for ($n = 5; $n < 25; $n++) {
+            $this->database()->table('posts')->insert(['id' => $n, 'discussion_id' => 1, 'user_id' => 3, 'type' => 'comment', 'number' => $n, 'created_at' => $now, 'content' => "<t><p>Reply $n</p></t>", 'club_section' => 1 + $n % 3]);
+        }
+
+        $queries = 0;
+        $this->database()->listen(function () use (&$queries) {
+            $queries++;
+        });
+        $count = function (int $limit) use (&$queries): int {
+            $queries = 0;
+            $this->send($this->request('GET', '/api/posts', ['authenticatedAs' => 4])->withQueryParams(['filter' => ['discussion' => '1'], 'page' => ['offset' => 1, 'limit' => $limit]]));
+
+            return $queries;
+        };
+
+        $count(2);
+        $this->assertSame($count(2), $count(20));
+    }
+
+    #[Test]
     public function a_reply_names_a_section_that_exists(): void
     {
         [$club] = $this->clubWithPick();
