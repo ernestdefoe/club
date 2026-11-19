@@ -5,13 +5,13 @@ use Ernestdefoe\Club\Api;
 use Ernestdefoe\Club\Club;
 use Ernestdefoe\Club\ClubServiceProvider;
 use Ernestdefoe\Club\Pick;
+use Ernestdefoe\Club\PostSection;
 use Ernestdefoe\Club\SpoilerGate;
 use Flarum\Api\Context;
 use Flarum\Api\Endpoint;
 use Flarum\Api\Resource\DiscussionResource;
 use Flarum\Api\Resource\ForumResource;
 use Flarum\Api\Resource\PostResource;
-use Flarum\Api\Schema;
 use Flarum\Discussion\Discussion;
 use Flarum\Extend;
 use Flarum\Post\CommentPost;
@@ -38,36 +38,40 @@ return [
         ->hasOne('clubPick', Pick::class, 'discussion_id'),
 
     (new Extend\Model(Post::class))
-        ->cast('club_section', 'integer'),
+        ->hasOne('clubSection', PostSection::class, 'post_id'),
 
     new Extend\ApiResource(Api\ClubResource::class),
     new Extend\ApiResource(Api\PickResource::class),
 
     (new Extend\ApiResource(DiscussionResource::class))
-        ->fields(fn () => [
-            Schema\Relationship\ToOne::make('clubPick')
-                ->type('club-picks')
-                ->includable(),
-        ])
-        ->endpoint(Endpoint\Show::class, fn (Endpoint\Show $endpoint) => $endpoint->addDefaultInclude(['clubPick', 'clubPick.club'])),
+        ->fields(Api\DiscussionFields::class)
+        ->endpoint(Endpoint\Show::class, fn (Endpoint\Show $endpoint) => $endpoint->addDefaultInclude(['clubPick', 'clubPick.club'])->eagerLoad(['firstPost.clubSection', 'lastPost.clubSection']))
+        ->endpoint(Endpoint\Index::class, fn (Endpoint\Index $endpoint) => $endpoint->eagerLoad(['mostRelevantPost.clubSection'])),
 
     (new Extend\ApiResource(PostResource::class))
         ->fields(Api\PostFields::class)
+        // The spoiler gate reads each post's section: one query for the whole page.
+        ->endpoint(
+            [Endpoint\Index::class, Endpoint\Show::class, Endpoint\Create::class, Endpoint\Update::class],
+            fn (Endpoint\Index|Endpoint\Show|Endpoint\Create|Endpoint\Update $endpoint) => $endpoint->eagerLoad(['clubSection'])
+        )
         // A reply about a section the viewer hasn't finished arrives without its text.
         ->field('contentHtml', fn (Field $field) => $field->visible(
             fn (Post $post, Context $context) => $post instanceof CommentPost && ! resolve(SpoilerGate::class)->closed($post, $context->getActor())
         )),
 
     (new Extend\ApiResource(ForumResource::class))
-        ->fields(fn () => [
-            Schema\Boolean::make('canStartClub')
-                ->get(fn ($forum, Context $context) => $context->getActor()->hasPermission('ernestdefoe-club.create')),
-        ]),
+        ->fields(Api\ForumFields::class),
 
-    (new Extend\Routes('api'))
-        ->post('/clubs/{id:\d+}/membership', 'clubs.join', Api\MembershipController::class)
-        ->delete('/clubs/{id:\d+}/membership', 'clubs.leave', Api\MembershipController::class)
-        ->post('/club-picks/{id:\d+}/progress', 'club-picks.progress', Api\ProgressController::class),
+    // flarum/mentions includes the replies that mention each post.
+    (new Extend\Conditional())
+        ->whenExtensionEnabled('flarum-mentions', fn () => [
+            (new Extend\ApiResource(PostResource::class))
+                ->endpoint(
+                    [Endpoint\Index::class, Endpoint\Show::class],
+                    fn (Endpoint\Index|Endpoint\Show $endpoint) => $endpoint->eagerLoadWhenIncluded(['mentionedBy' => ['mentionedBy.clubSection']])
+                ),
+        ]),
 
     (new Extend\Policy())
         ->modelPolicy(Club::class, ClubPolicy::class)

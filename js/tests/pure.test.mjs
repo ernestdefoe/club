@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { percent, splitMonth, current, replySection } from '../src/forum/schedule.js';
+import { percent, splitMonth, current, replySection } from '../src/forum/schedule.ts';
 
 test('progress as a share', () => {
   assert.equal(percent(0, 4), 0);

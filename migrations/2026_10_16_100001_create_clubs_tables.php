@@ -60,16 +60,15 @@ return [
             $table->foreign('pick_id')->references('id')->on('club_picks')->cascadeOnDelete();
             $table->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
         });
-
-        $schema->table('posts', function (Blueprint $table) {
-            // Which section of a club pick a reply discusses; null = general.
-            $table->unsignedTinyInteger('club_section')->nullable();
-        });
     },
     'down' => function (Builder $schema) {
-        $schema->table('posts', function (Blueprint $table) {
-            $table->dropColumn('club_section');
-        });
+        // Club 1.0 kept a section column on `posts`. The 2026_11_19 migrations
+        // move it off, and put it back when rolled back, so drop it here.
+        if ($schema->hasColumn('posts', 'club_section')) {
+            $schema->table('posts', function (Blueprint $table) {
+                $table->dropColumn('club_section');
+            });
+        }
         $schema->dropIfExists('club_progress');
         $schema->dropIfExists('club_picks');
         $schema->dropIfExists('club_members');

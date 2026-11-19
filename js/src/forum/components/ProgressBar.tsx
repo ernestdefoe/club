@@ -1,7 +1,7 @@
 import { percent } from '../schedule';
 
 /** A thin bar, filled to how far through a pick someone is. */
-export default function progressBar(done, count, label) {
+export default function progressBar(done: number, count: number, label: string) {
   const value = percent(done, count);
 
   return (

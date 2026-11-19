@@ -4,25 +4,32 @@ import Button from 'flarum/common/components/Button';
 import Link from 'flarum/common/components/Link';
 import LoadingIndicator from 'flarum/common/components/LoadingIndicator';
 import Placeholder from 'flarum/common/components/Placeholder';
+import type Mithril from 'mithril';
+import type { IPageAttrs } from 'flarum/common/components/Page';
 import posterUrl from 'ext:ernestdefoe/marquee/forum/utils/posterUrl';
 import ClubPanel from './ClubPanel';
 import ClubEditModal from './ClubEditModal';
+import type { Club, Pick } from '../models';
 import { setMembership } from '../api';
 import { t, text, monthName } from '../util';
 
+const picksOf = (club: Club) => (club.picks() || []).filter((pick): pick is Pick => !!pick);
+
 /** One club: what it's on this month, everyone's progress, and its past picks. */
 export default class ClubPage extends Page {
-  oninit(vnode) {
-    super.oninit(vnode);
-    this.club = null;
+  club: Club | null = null;
+  missing = false;
 
-    app.store.find('clubs', m.route.param('id')).then(
+  oninit(vnode: Mithril.Vnode<IPageAttrs, this>) {
+    super.oninit(vnode);
+
+    app.store.find<Club>('clubs', m.route.param('id')).then(
       (club) => {
         this.club = club;
         app.setTitle(club.name());
-        const latest = (club.picks() || [])[0];
+        const latest = picksOf(club)[0];
         // The member list comes with the pick's own page.
-        if (latest) app.store.find('club-picks', latest.id()).then(() => m.redraw());
+        if (latest) app.store.find('club-picks', latest.id() as string).then(() => m.redraw());
         m.redraw();
       },
       () => {
@@ -42,8 +49,7 @@ export default class ClubPage extends Page {
     if (!this.club) return <LoadingIndicator display="block" />;
 
     const club = this.club;
-    const picks = (club.picks() || []).filter(Boolean);
-    const [latest, ...past] = picks;
+    const [latest, ...past] = picksOf(club);
 
     return (
       <div className="container ClubPage">
@@ -77,14 +83,15 @@ export default class ClubPage extends Page {
     );
   }
 
-  pickCard(pick, small) {
+  pickCard(pick: Pick, small = false) {
     const media = pick.media();
     const discussion = pick.discussion();
+    const poster = media ? media.poster() : null;
 
     return (
       <Link className={small ? 'ClubPick ClubPick--small' : 'ClubPick'} href={discussion ? app.route.discussion(discussion) : undefined}>
-        {media && media.poster() ? (
-          <img src={posterUrl(media.poster(), small ? 'w185' : 'w342')} alt="" loading="lazy" decoding="async" />
+        {poster ? (
+          <img src={posterUrl(poster, small ? 'w185' : 'w342')} alt="" loading="lazy" decoding="async" />
         ) : (
           <span className="ClubPick-blank" />
         )}
@@ -95,8 +102,8 @@ export default class ClubPage extends Page {
     );
   }
 
-  controls(club) {
-    const items = [];
+  controls(club: Club) {
+    const items: Mithril.Children[] = [];
 
     if (app.session.user && club.viewerRole() !== 'host') {
       items.push(
@@ -117,30 +124,30 @@ export default class ClubPage extends Page {
         <Button className="Button" icon="fas fa-pencil-alt" onclick={() => app.modal.show(ClubEditModal, { club })}>
           {t('club.edit')}
         </Button>,
-        <Button className="Button Button--danger" icon="far fa-trash-alt" onclick={() => this.remove()}>
+        <Button className="Button Button--danger" icon="far fa-trash-alt" onclick={() => this.remove(club)}>
           {t('club.delete')}
-        </Button>
+        </Button>,
+        <p className="ClubPage-hint">{t('club.how_to_pick')}</p>
       );
-      items.push(<p className="ClubPage-hint">{t('club.how_to_pick')}</p>);
     }
 
     return items;
   }
 
-  member(join) {
-    setMembership(this.club, join)
+  member(join: boolean) {
+    const club = this.club;
+    if (!club) return;
+
+    setMembership(club, join)
       .then(() => {
-        const latest = (this.club.picks() || [])[0];
-        return latest ? app.store.find('club-picks', latest.id()) : null;
+        const latest = picksOf(club)[0];
+        return latest ? app.store.find('club-picks', latest.id() as string) : null;
       })
       .then(() => m.redraw());
   }
 
-  remove() {
-    if (!confirm(text('club.delete_confirm', { name: this.club.name() }))) return;
-    app.request({ method: 'DELETE', url: `${app.forum.attribute('apiUrl')}/clubs/${this.club.id()}` }).then(() => {
-      app.store.remove(this.club);
-      m.route.set(app.route('clubs'));
-    });
+  remove(club: Club) {
+    if (!confirm(text('club.delete_confirm', { name: club.name() }))) return;
+    club.delete().then(() => m.route.set(app.route('clubs')));
   }
 }

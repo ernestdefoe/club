@@ -5,7 +5,9 @@ namespace Ernestdefoe\Club\Api;
 use Carbon\Carbon;
 use Ernestdefoe\Club\Club;
 use Ernestdefoe\Club\Pick;
+use Ernestdefoe\Club\PostSection;
 use Ernestdefoe\Club\Viewer;
+use Ernestdefoe\Marquee\Link;
 use Flarum\Api\Context;
 use Flarum\Api\Endpoint;
 use Flarum\Api\Resource\AbstractDatabaseResource;
@@ -16,7 +18,9 @@ use Flarum\Foundation\ValidationException;
 use Flarum\Locale\TranslatorInterface;
 use Flarum\User\Exception\PermissionDeniedException;
 use Flarum\User\User;
+use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Arr;
 use Tobyz\JsonApiServer\Context as OriginalContext;
 
 /**
@@ -28,8 +32,11 @@ class PickResource extends AbstractDatabaseResource
 {
     private const MEMBERS_SHOWN = 100;
 
-    public function __construct(private Viewer $viewer, private TranslatorInterface $translator)
-    {
+    public function __construct(
+        private Viewer $viewer,
+        private TranslatorInterface $translator,
+        private ConnectionInterface $db
+    ) {
     }
 
     public function type(): string
@@ -62,7 +69,28 @@ class PickResource extends AbstractDatabaseResource
             Endpoint\Delete::make()
                 ->authenticated()
                 ->can('delete'),
+            // A member says how many sections they have finished.
+            Endpoint\Endpoint::make('progress')
+                ->route('POST', '/{id}/progress')
+                ->authenticated()
+                ->action(fn (Context $context) => $this->saveProgress($context->model, $context->getActor(), (int) Arr::get($context->body(), 'done'))),
         ];
+    }
+
+    private function saveProgress(Pick $pick, User $actor, int $done): Pick
+    {
+        if (! $this->viewer->role($actor, $pick->club_id)) {
+            throw new PermissionDeniedException();
+        }
+
+        $this->db->table('club_progress')->upsert(
+            [['pick_id' => $pick->id, 'user_id' => $actor->id, 'done' => max(0, min($pick->sectionCount(), $done)), 'updated_at' => Carbon::now()]],
+            ['pick_id', 'user_id'],
+            ['done', 'updated_at']
+        );
+        $this->viewer->forget($actor);
+
+        return $pick;
     }
 
     public function creating(object $model, OriginalContext $context): ?object
@@ -76,7 +104,7 @@ class PickResource extends AbstractDatabaseResource
             throw new PermissionDeniedException();
         }
 
-        $mediaId = $discussion ? (int) $discussion->getAttribute('marquee_media_id') : 0;
+        $mediaId = $discussion ? self::linkedTitle($discussion) : 0;
         if (! $discussion || ! $mediaId || ! Discussion::whereVisibleTo($actor)->whereKey($discussion->id)->exists()) {
             $this->fail('discussion', 'not_linked');
         }
@@ -89,6 +117,30 @@ class PickResource extends AbstractDatabaseResource
         $model->created_at = Carbon::now();
 
         return $model;
+    }
+
+    public function updated(object $model, OriginalContext $context): ?object
+    {
+        /** @var Pick $model */
+        $count = $model->sectionCount();
+
+        // Replies about sections a shortened schedule no longer has move to its
+        // last one, so they open once a member finishes it.
+        PostSection::query()->where('pick_id', $model->id)->where('section', '>', $count)->update(['section' => $count]);
+
+        return $model;
+    }
+
+    /** The title Marquee links the discussion to, 0 for none. */
+    private static function linkedTitle(Discussion $discussion): int
+    {
+        // Marquee 1.20 and older kept the link on `discussions`. Only until a
+        // forum updates Marquee: 1.21 refuses older Club releases.
+        if (! class_exists(Link::class)) {
+            return (int) $discussion->getAttribute('marquee_media_id');
+        }
+
+        return (int) Link::query()->whereKey($discussion->id)->value('media_id');
     }
 
     private function fail(string $field, string $reason): never
@@ -117,7 +169,7 @@ class PickResource extends AbstractDatabaseResource
             // Every member's progress, on the pick's own page and its discussion.
             Schema\Arr::make('progress')
                 ->visible(fn (Pick $pick, Context $context) => $context->showing(self::class) || $context->showing(DiscussionResource::class))
-                ->get(fn (Pick $pick) => $this->progress($pick)),
+                ->get(fn (Pick $pick, Context $context) => $this->progress($pick, $context->getActor())),
 
             Schema\Relationship\ToOne::make('club')
                 ->type('clubs')
@@ -165,7 +217,7 @@ class PickResource extends AbstractDatabaseResource
      *
      * @return list<array{id: string, username: string, displayName: string, avatarUrl: string|null, done: int}>
      */
-    private function progress(Pick $pick): array
+    private function progress(Pick $pick, User $actor): array
     {
         $db = $pick->getConnection();
         // Members with no progress row yet count as 0; PostgreSQL would sort their NULL first.
@@ -181,7 +233,7 @@ class PickResource extends AbstractDatabaseResource
             ->limit(self::MEMBERS_SHOWN)
             ->get(['club_members.user_id', 'club_progress.done']);
 
-        $users = User::query()->whereIn('id', $rows->pluck('user_id'))->get()->keyBy('id');
+        $users = User::query()->whereVisibleTo($actor)->whereIn('id', $rows->pluck('user_id'))->get()->keyBy('id');
 
         return $rows->filter(fn ($row) => $users->has($row->user_id))->map(function ($row) use ($users) {
             /** @var User $user */

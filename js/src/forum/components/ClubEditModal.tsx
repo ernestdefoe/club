@@ -1,11 +1,20 @@
 import app from 'flarum/forum/app';
-import FormModal from 'flarum/common/components/FormModal';
+import FormModal, { type IFormModalAttrs } from 'flarum/common/components/FormModal';
 import Button from 'flarum/common/components/Button';
+import type Mithril from 'mithril';
+import type { Club } from '../models';
 import { t } from '../util';
 
+export interface ClubEditModalAttrs extends IFormModalAttrs {
+  club?: Club;
+}
+
 /** Start a club, or rename and describe one. */
-export default class ClubEditModal extends FormModal {
-  oninit(vnode) {
+export default class ClubEditModal extends FormModal<ClubEditModalAttrs> {
+  name = '';
+  description = '';
+
+  oninit(vnode: Mithril.Vnode<ClubEditModalAttrs, this>) {
     super.oninit(vnode);
     const club = this.attrs.club;
     this.name = club ? club.name() : '';
@@ -26,7 +35,14 @@ export default class ClubEditModal extends FormModal {
         <div className="Form">
           <div className="Form-group">
             <label for="club-name">{t('club.name_label')}</label>
-            <input id="club-name" className="FormControl" maxlength="100" required value={this.name} oninput={(e) => (this.name = e.target.value)} />
+            <input
+              id="club-name"
+              className="FormControl"
+              maxlength="100"
+              required
+              value={this.name}
+              oninput={(e: InputEvent) => (this.name = (e.target as HTMLInputElement).value)}
+            />
           </div>
           <div className="Form-group">
             <label for="club-description">{t('club.description_label')}</label>
@@ -36,7 +52,7 @@ export default class ClubEditModal extends FormModal {
               rows="4"
               maxlength="2000"
               value={this.description}
-              oninput={(e) => (this.description = e.target.value)}
+              oninput={(e: InputEvent) => (this.description = (e.target as HTMLTextAreaElement).value)}
             />
           </div>
           <div className="Form-group">
@@ -49,23 +65,16 @@ export default class ClubEditModal extends FormModal {
     );
   }
 
-  onsubmit(e) {
+  onsubmit(e: SubmitEvent) {
     e.preventDefault();
     this.loading = true;
 
-    const club = this.attrs.club;
-    const attributes = { name: this.name.trim(), description: this.description.trim() || null };
+    const isNew = !this.attrs.club;
+    const club = this.attrs.club || app.store.createRecord<Club>('clubs');
 
-    app
-      .request({
-        method: club ? 'PATCH' : 'POST',
-        url: `${app.forum.attribute('apiUrl')}/clubs${club ? '/' + club.id() : ''}`,
-        body: { data: { type: 'clubs', ...(club ? { id: club.id() } : {}), attributes } },
-      })
-      .then((payload) => {
-        const saved = app.store.pushPayload(payload);
-        this.hide();
-        if (!club) m.route.set(app.route('club', { id: saved.id() }));
-      }, this.loaded.bind(this));
+    club.save({ name: this.name.trim(), description: this.description.trim() || null }).then((saved) => {
+      this.hide();
+      if (isNew) m.route.set(app.route('club', { id: saved.id() }));
+    }, this.loaded.bind(this));
   }
 }

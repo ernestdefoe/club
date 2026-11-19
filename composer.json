@@ -22,10 +22,16 @@
         "flarum/core": "^2.0",
         "ernestdefoe/marquee": "^1.6"
     },
+    "suggest": {
+        "flarum/mentions": "Replies that mention a spoiler-gated reply load its section with the rest of the page."
+    },
     "extra": {
         "flarum-extension": {
             "title": "Club",
             "category": "feature",
+            "optional-dependencies": [
+                "flarum-mentions"
+            ],
             "icon": {
                 "name": "fas fa-book-open-reader",
                 "backgroundColor": "#1f3b2d",

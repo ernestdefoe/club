@@ -8,7 +8,8 @@ class ClubServiceProvider extends AbstractServiceProvider
 {
     public function register(): void
     {
-        // One per request: it remembers which discussions are picks.
-        $this->container->singleton(SpoilerGate::class);
+        // One each per request, so every field, policy and post shares their memos.
+        $this->container->scoped(Viewer::class);
+        $this->container->scoped(SpoilerGate::class);
     }
 }

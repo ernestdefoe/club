@@ -48,17 +48,43 @@ class ClubTest extends TestCase
                 ['id' => 1, 'kind' => 'book', 'external_id' => 'OL1W', 'title' => 'Dune', 'year' => 1965, 'poster' => 'ol:b:1', 'fetched_at' => $now, 'data' => '{}'],
             ],
             Discussion::class => [
-                ['id' => 1, 'title' => 'Dune (1965)', 'user_id' => 3, 'created_at' => $now, 'comment_count' => 4, 'marquee_media_id' => 1, 'first_post_id' => 1, 'last_post_number' => 4],
+                ['id' => 1, 'title' => 'Dune (1965)', 'user_id' => 3, 'created_at' => $now, 'comment_count' => 4, 'first_post_id' => 1, 'last_post_number' => 4],
                 ['id' => 2, 'title' => 'Not linked', 'user_id' => 3, 'created_at' => $now, 'comment_count' => 1],
-                ['id' => 3, 'title' => 'Hidden Dune', 'user_id' => 1, 'created_at' => $now, 'comment_count' => 1, 'marquee_media_id' => 1, 'hidden_at' => $now],
+                ['id' => 3, 'title' => 'Hidden Dune', 'user_id' => 1, 'created_at' => $now, 'comment_count' => 1, 'hidden_at' => $now],
             ],
             Post::class => [
                 ['id' => 1, 'discussion_id' => 1, 'user_id' => 3, 'type' => 'comment', 'number' => 1, 'created_at' => $now, 'content' => '<t><p>Welcome</p></t>'],
-                ['id' => 2, 'discussion_id' => 1, 'user_id' => 3, 'type' => 'comment', 'number' => 2, 'created_at' => $now, 'content' => '<t><p>Paul meets the worm</p></t>', 'club_section' => 1],
-                ['id' => 3, 'discussion_id' => 1, 'user_id' => 3, 'type' => 'comment', 'number' => 3, 'created_at' => $now, 'content' => '<t><p>The ending twist</p></t>', 'club_section' => 3],
-                ['id' => 4, 'discussion_id' => 1, 'user_id' => 4, 'type' => 'comment', 'number' => 4, 'created_at' => $now, 'content' => '<t><p>My own late take</p></t>', 'club_section' => 3],
+                ['id' => 2, 'discussion_id' => 1, 'user_id' => 3, 'type' => 'comment', 'number' => 2, 'created_at' => $now, 'content' => '<t><p>Paul meets the worm</p></t>'],
+                ['id' => 3, 'discussion_id' => 1, 'user_id' => 3, 'type' => 'comment', 'number' => 3, 'created_at' => $now, 'content' => '<t><p>The ending twist</p></t>'],
+                ['id' => 4, 'discussion_id' => 1, 'user_id' => 4, 'type' => 'comment', 'number' => 4, 'created_at' => $now, 'content' => '<t><p>My own late take</p></t>'],
             ],
         ]);
+        $this->linkDiscussions([1 => 1, 3 => 1]);
+    }
+
+    /**
+     * Marquee links, wherever the installed Marquee keeps them: its own table
+     * from 1.21, columns on `discussions` before. Call before the app boots.
+     *
+     * @param array<int, int> $links discussion id => title id
+     */
+    private function linkDiscussions(array $links): void
+    {
+        if (class_exists(\Ernestdefoe\Marquee\Link::class)) {
+            $this->prepareDatabase(['marquee_discussions' => array_map(
+                fn ($id, $media) => ['discussion_id' => $id, 'media_id' => $media],
+                array_keys($links),
+                $links
+            )]);
+
+            return;
+        }
+
+        foreach ($this->databaseContent[Discussion::class] as &$row) {
+            if (isset($links[$row['id']])) {
+                $row['marquee_media_id'] = $links[$row['id']];
+            }
+        }
     }
 
     private function json(ResponseInterface $response): array
@@ -93,7 +119,10 @@ class ClubTest extends TestCase
         ]]);
     }
 
-    /** A club hosted by user 3 with a pick on discussion 1, joined by user 4. */
+    /**
+     * A club hosted by user 3 with a pick on discussion 1, joined by user 4.
+     * Posts 2, 3 and 4 are about sections 1, 3 and 3.
+     */
     private function clubWithPick(): array
     {
         $this->database()->table('group_permission')->insert(['group_id' => 3, 'permission' => 'ernestdefoe-club.create']);
@@ -102,7 +131,18 @@ class ClubTest extends TestCase
         $pick = (int) $this->json($this->createPick($club, 1))['data']['id'];
         $this->call('POST', "/api/clubs/$club/membership", 4);
 
+        $this->database()->table('club_post_sections')->insert([
+            ['post_id' => 2, 'pick_id' => $pick, 'section' => 1],
+            ['post_id' => 3, 'pick_id' => $pick, 'section' => 3],
+            ['post_id' => 4, 'pick_id' => $pick, 'section' => 3],
+        ]);
+
         return [$club, $pick];
+    }
+
+    private function memberCount(int $club): int
+    {
+        return (int) $this->database()->table('clubs')->where('id', $club)->value('member_count');
     }
 
     private function postHtml(int $postId, ?int $as): ?string
@@ -221,7 +261,8 @@ class ClubTest extends TestCase
 
         $now = Carbon::now();
         for ($n = 5; $n < 25; $n++) {
-            $this->database()->table('posts')->insert(['id' => $n, 'discussion_id' => 1, 'user_id' => 3, 'type' => 'comment', 'number' => $n, 'created_at' => $now, 'content' => "<t><p>Reply $n</p></t>", 'club_section' => 1 + $n % 3]);
+            $this->database()->table('posts')->insert(['id' => $n, 'discussion_id' => 1, 'user_id' => 3, 'type' => 'comment', 'number' => $n, 'created_at' => $now, 'content' => "<t><p>Reply $n</p></t>"]);
+            $this->database()->table('club_post_sections')->insert(['post_id' => $n, 'pick_id' => $pick, 'section' => 1 + $n % 3]);
         }
 
         $queries = 0;
@@ -286,5 +327,193 @@ class ClubTest extends TestCase
         $show = $this->json($this->call('GET', "/api/clubs/$club", 5));
         $this->assertSame([], $show['data']['relationships']['picks']['data']);
         $this->assertSame(404, $this->call('POST', "/api/club-picks/$pick/progress", 4, ['done' => 1])->getStatusCode());
+    }
+    #[Test]
+    public function a_reply_section_is_stored_beside_the_post_and_can_be_cleared(): void
+    {
+        [, $pick] = $this->clubWithPick();
+
+        $created = $this->json($this->call('POST', '/api/posts', 4, ['data' => [
+            'type' => 'posts',
+            'attributes' => ['content' => 'About part two.', 'clubSection' => 2],
+            'relationships' => ['discussion' => ['data' => ['type' => 'discussions', 'id' => '1']]],
+        ]]));
+        $id = (int) $created['data']['id'];
+
+        $this->assertSame(['pick_id' => $pick, 'section' => 2], (array) $this->database()->table('club_post_sections')->where('post_id', $id)->first(['pick_id', 'section']));
+        $this->assertFalse($this->database()->getSchemaBuilder()->hasColumn('posts', 'club_section'));
+
+        // Edited to another section, then to a general reply.
+        $patch = fn (?int $section) => $this->call('PATCH', "/api/posts/$id", 4, ['data' => ['type' => 'posts', 'id' => (string) $id, 'attributes' => ['clubSection' => $section]]]);
+        $this->assertSame(3, $this->json($patch(3))['data']['attributes']['clubSection']);
+        $this->assertSame(3, (int) $this->database()->table('club_post_sections')->where('post_id', $id)->value('section'));
+
+        $general = $this->json($patch(null));
+        $this->assertNull($general['data']['attributes']['clubSection']);
+        $this->assertArrayNotHasKey('clubClosed', $general['data']['attributes']);
+        $this->assertSame(0, $this->database()->table('club_post_sections')->where('post_id', $id)->count());
+    }
+
+    #[Test]
+    public function the_1_0_section_column_moves_off_posts_and_back(): void
+    {
+        $db = $this->database();
+
+        if ($db->getDriverName() === 'mysql') {
+            // ALTER TABLE commits MySQL's open transaction, so this test's rows
+            // would outlive it and break the tests after it.
+            $this->markTestSkipped('Schema changes cannot be rolled back on MySQL.');
+        }
+
+        [, $pick] = $this->clubWithPick();
+        $schema = $db->getSchemaBuilder();
+        $migration = require __DIR__.'/../../../migrations/2026_11_19_000002_move_club_sections_off_posts.php';
+
+        // Roll back to the 1.0 layout: the sections go back onto posts.
+        $migration['down']($schema);
+        $this->assertTrue($schema->hasColumn('posts', 'club_section'));
+        $this->assertSame([2 => 1, 3 => 3, 4 => 3], $db->table('posts')->whereNotNull('club_section')->pluck('club_section', 'id')->map(fn ($s) => (int) $s)->all());
+
+        // A 1.0 forum updating: the rows are rebuilt from the column, which goes.
+        $db->table('club_post_sections')->delete();
+        $migration['up']($schema);
+        $this->assertFalse($schema->hasColumn('posts', 'club_section'));
+        $this->assertSame([2 => 1, 3 => 3, 4 => 3], $db->table('club_post_sections')->where('pick_id', $pick)->pluck('section', 'post_id')->map(fn ($s) => (int) $s)->all());
+
+        // Installed after 1.0: nothing to move.
+        $migration['up']($schema);
+        $this->assertSame(3, $db->table('club_post_sections')->count());
+    }
+
+    #[Test]
+    public function joining_twice_counts_once_and_leaving_counts_down(): void
+    {
+        [$club] = $this->clubWithPick();
+        $this->assertSame(2, $this->memberCount($club));
+
+        $again = $this->call('POST', "/api/clubs/$club/membership", 4);
+        $this->assertSame(200, $again->getStatusCode(), (string) $again->getBody());
+        $this->assertSame(2, $this->json($again)['data']['attributes']['memberCount']);
+        $this->assertSame(2, $this->memberCount($club));
+
+        $left = $this->json($this->call('DELETE', "/api/clubs/$club/membership", 4));
+        $this->assertSame(1, $left['data']['attributes']['memberCount']);
+        $this->assertNull($left['data']['attributes']['viewerRole']);
+
+        // Leaving a club you're not in changes nothing.
+        $this->call('DELETE', "/api/clubs/$club/membership", 4);
+        $this->assertSame(1, $this->memberCount($club));
+    }
+
+    #[Test]
+    public function guests_cannot_join_leave_or_mark_progress(): void
+    {
+        [$club, $pick] = $this->clubWithPick();
+        $this->call('POST', "/api/club-picks/$pick/progress", 4, ['done' => 2]);
+
+        // Past the CSRF check, so the endpoints themselves turn the guest away.
+        $guest = fn (string $method, string $path) => $this->send($this->request($method, $path, ['json' => ['done' => 1]])->withAttribute('bypassCsrfToken', true))->getStatusCode();
+        $this->assertSame(401, $guest('POST', "/api/clubs/$club/membership"));
+        $this->assertSame(401, $guest('DELETE', "/api/clubs/$club/membership"));
+        $this->assertSame(401, $guest('POST', "/api/club-picks/$pick/progress"));
+        $this->assertSame(2, $this->memberCount($club));
+        $this->assertSame(2, (int) $this->database()->table('club_progress')->where('pick_id', $pick)->value('done'));
+    }
+
+    #[Test]
+    public function joining_needs_the_join_permission(): void
+    {
+        // Not yet confirmed, so not in the Members group that has it.
+        $this->prepareDatabase([User::class => [['id' => 6, 'username' => 'pending', 'email' => 'pending@machine.local', 'is_email_confirmed' => 0]]]);
+        [$club] = $this->clubWithPick();
+
+        $this->assertSame(403, $this->call('POST', "/api/clubs/$club/membership", 6)->getStatusCode());
+        $this->assertSame(2, $this->memberCount($club));
+    }
+
+    #[Test]
+    public function the_forum_says_who_can_start_a_club(): void
+    {
+        $this->database()->table('group_permission')->insert(['group_id' => 3, 'permission' => 'ernestdefoe-club.create']);
+
+        $this->assertTrue($this->json($this->call('GET', '/api', 4))['data']['attributes']['canStartClub']);
+        $this->assertFalse($this->json($this->call('GET', '/api', null))['data']['attributes']['canStartClub']);
+    }
+
+    #[Test]
+    public function the_discussion_list_costs_no_more_queries_in_bulk(): void
+    {
+        $this->clubWithPick();
+
+        $now = Carbon::now();
+        for ($n = 10; $n < 30; $n++) {
+            $this->database()->table('discussions')->insert(['id' => $n, 'title' => "Talk $n", 'slug' => "talk-$n", 'user_id' => 3, 'created_at' => $now, 'last_posted_at' => $now, 'comment_count' => 1, 'last_post_number' => 1]);
+            $this->database()->table('posts')->insert(['id' => $n + 100, 'discussion_id' => $n, 'user_id' => 3, 'type' => 'comment', 'number' => 1, 'created_at' => $now, 'content' => "<t><p>Talk $n</p></t>"]);
+            $this->database()->table('discussions')->where('id', $n)->update(['first_post_id' => $n + 100, 'last_post_id' => $n + 100]);
+        }
+
+        $queries = 0;
+        $this->database()->listen(function () use (&$queries) {
+            $queries++;
+        });
+        $count = function (int $limit) use (&$queries): int {
+            $queries = 0;
+            $this->send($this->request('GET', '/api/discussions', ['authenticatedAs' => 4])->withQueryParams(['filter' => ['q' => 'Talk'], 'page' => ['limit' => $limit]]));
+
+            return $queries;
+        };
+
+        $count(2);
+        $this->assertSame($count(2), $count(20));
+    }
+
+    #[Test]
+    public function one_viewer_serves_the_whole_request(): void
+    {
+        $this->app();
+        $container = $this->app()->getContainer();
+
+        $this->assertSame($container->make(\Ernestdefoe\Club\Viewer::class), $container->make(\Ernestdefoe\Club\Viewer::class));
+    }
+    #[Test]
+    public function a_shortened_schedule_moves_its_replies_to_the_last_section(): void
+    {
+        [, $pick] = $this->clubWithPick();
+        $this->call('POST', "/api/club-picks/$pick/progress", 4, ['done' => 1]);
+        $this->assertNull($this->postHtml(3, 4));
+
+        $patched = $this->call('PATCH', "/api/club-picks/$pick", 3, ['data' => ['type' => 'club-picks', 'id' => (string) $pick, 'attributes' => ['sections' => [['label' => 'All of it', 'due' => null]]]]]);
+        $this->assertSame(200, $patched->getStatusCode(), (string) $patched->getBody());
+
+        $this->assertSame([2 => 1, 3 => 1, 4 => 1], $this->database()->table('club_post_sections')->pluck('section', 'post_id')->map(fn ($s) => (int) $s)->all());
+        $this->assertStringContainsString('twist', (string) $this->postHtml(3, 4));
+    }
+
+    #[Test]
+    public function a_post_without_its_section_loaded_is_looked_up_only_in_a_pick(): void
+    {
+        [, $pick] = $this->clubWithPick();
+        $this->call('GET', '/api', 4);
+
+        $gate = $this->app()->getContainer()->make(\Ernestdefoe\Club\SpoilerGate::class);
+        $reader = User::query()->findOrFail(4);
+        $posts = Post::query()->whereIn('id', [1, 3])->get()->keyBy('id');
+        $elsewhere = (new Post())->forceFill(['discussion_id' => 2]);
+
+        $queries = 0;
+        $this->database()->listen(function () use (&$queries) {
+            $queries++;
+        });
+
+        // Not a pick: one query for the pick discussions, then none.
+        $this->assertNull($gate->section($elsewhere, $reader));
+        $this->assertNull($gate->section((new Post())->forceFill(['discussion_id' => 2]), $reader));
+        $this->assertSame(1, $queries);
+
+        // In a pick: its own row.
+        $this->assertSame(3, $gate->section($posts[3], $reader)?->section);
+        $this->assertNull($gate->section($posts[1], $reader));
+        $this->assertTrue($gate->closed($posts[3], $reader));
+        $this->assertSame($pick, $gate->section($posts[3], $reader)->pick_id);
     }
 }

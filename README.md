@@ -43,7 +43,7 @@ A pick is visible to whoever can see its discussion, so a pick in a restricted t
 ## Good to know
 
 - **What is spoiler-gated.** Replies in the forum (the discussion, search results, mentions, the no-JavaScript page) for anyone who hasn't finished that section, staff included. Email notifications about new replies are not: someone who follows the discussion by email gets the text.
-- **Lean on every page.** Ordinary discussions cost nothing: only replies that name a section are checked, and a page of them costs two small queries however many there are.
+- **Lean on every page.** A page of replies costs one small query for their sections, and two more when any of them name one, however many replies there are. Sections live in their own table, not on `posts`.
 - **A club always has a host.** Its only host can't leave; they can delete the club, or a moderator can step in.
 - **Schedules** have up to 31 sections.
 

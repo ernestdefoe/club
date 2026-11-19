@@ -3,7 +3,7 @@
  */
 
 /** The share of a pick done, 0-100. */
-export function percent(done, count) {
+export function percent(done: number, count: number): number {
   if (!count) return 0;
   return Math.round((Math.min(Math.max(done, 0), count) / count) * 100);
 }
@@ -12,7 +12,7 @@ export function percent(done, count) {
  * `parts` sections spread evenly over the month `month` (YYYY-MM-01), each due
  * on its last day, labelled `label(n)`.
  */
-export function splitMonth(month, parts, label) {
+export function splitMonth(month: string, parts: number, label: (n: number) => string): { label: string; due: string }[] {
   const [y, m] = month.split('-').map(Number);
   const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
   const out = [];
@@ -29,12 +29,12 @@ export function splitMonth(month, parts, label) {
  * Which section a member should be on: the first one they haven't finished
  * (or the last, once they are done). 1-based.
  */
-export function current(done, count) {
+export function current(done: number, count: number): number {
   return Math.max(1, Math.min(count, done + 1));
 }
 
 /** The default section for a new reply: what the member last finished. */
-export function replySection(done, count) {
+export function replySection(done: number, count: number): number | null {
   if (!count) return null;
   return Math.max(1, Math.min(count, done || 1));
 }

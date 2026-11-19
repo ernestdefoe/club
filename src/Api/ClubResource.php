@@ -10,6 +10,9 @@ use Flarum\Api\Endpoint;
 use Flarum\Api\Resource\AbstractDatabaseResource;
 use Flarum\Api\Schema;
 use Flarum\Api\Sort\SortColumn;
+use Flarum\Foundation\ValidationException;
+use Flarum\Locale\TranslatorInterface;
+use Flarum\User\User;
 use Illuminate\Database\ConnectionInterface;
 use Tobyz\JsonApiServer\Context as OriginalContext;
 
@@ -18,8 +21,11 @@ use Tobyz\JsonApiServer\Context as OriginalContext;
  */
 class ClubResource extends AbstractDatabaseResource
 {
-    public function __construct(private Viewer $viewer, private ConnectionInterface $db)
-    {
+    public function __construct(
+        private Viewer $viewer,
+        private ConnectionInterface $db,
+        private TranslatorInterface $translator
+    ) {
     }
 
     public function type(): string
@@ -54,7 +60,62 @@ class ClubResource extends AbstractDatabaseResource
             Endpoint\Delete::make()
                 ->authenticated()
                 ->can('delete'),
+            Endpoint\Endpoint::make('join')
+                ->route('POST', '/{id}/membership')
+                ->authenticated()
+                ->can('ernestdefoe-club.join')
+                ->action(fn (Context $context) => $this->join($context->model, $context->getActor())),
+            Endpoint\Endpoint::make('leave')
+                ->route('DELETE', '/{id}/membership')
+                ->authenticated()
+                ->action(fn (Context $context) => $this->leave($context->model, $context->getActor())),
         ];
+    }
+
+    private function join(Club $club, User $actor): Club
+    {
+        $this->db->transaction(function () use ($club, $actor) {
+            $added = $this->db->table('club_members')->insertOrIgnore([
+                'club_id' => $club->id,
+                'user_id' => $actor->id,
+                'role' => 'member',
+                'joined_at' => Carbon::now(),
+            ]);
+
+            if ($added) {
+                Club::query()->whereKey($club->id)->increment('member_count');
+            }
+        });
+
+        return $this->changed($club, $actor);
+    }
+
+    private function leave(Club $club, User $actor): Club
+    {
+        $this->db->transaction(function () use ($club, $actor) {
+            $members = $this->db->table('club_members')->where('club_id', $club->id);
+            $role = (clone $members)->where('user_id', $actor->id)->value('role');
+
+            // A club always keeps someone to run it.
+            if ($role === 'host' && (clone $members)->where('role', 'host')->count() === 1) {
+                throw new ValidationException(['club' => $this->translator->trans('ernestdefoe-club.api.last_host')]);
+            }
+
+            if ($role && (clone $members)->where('user_id', $actor->id)->delete()) {
+                // member_count is unsigned: never take it below zero.
+                Club::query()->whereKey($club->id)->where('member_count', '>', 0)->decrement('member_count');
+            }
+        });
+
+        return $this->changed($club, $actor);
+    }
+
+    /** The club as it is now, with the actor's new role. */
+    private function changed(Club $club, User $actor): Club
+    {
+        $this->viewer->forget($actor);
+
+        return $club->refresh();
     }
 
     public function creating(object $model, OriginalContext $context): ?object

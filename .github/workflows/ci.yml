@@ -34,6 +34,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          tools: composer:v2
+
+      # check-typings reads core's typings from vendor/flarum/core.
+      - name: Install core for its typings
+        run: composer install --no-interaction --no-progress --prefer-dist
+
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
@@ -45,6 +55,10 @@ jobs:
       - name: Format
         working-directory: js
         run: npm run format-check
+
+      - name: Types
+        working-directory: js
+        run: npm run check-typings
 
       - name: Unit tests
         working-directory: js
